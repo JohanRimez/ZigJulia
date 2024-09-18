@@ -1,5 +1,5 @@
 const std = @import("std");
-const sdl = @import("SDLImport.zig");
+const sdl = @import("cImport.zig");
 
 // Setup parameters
 const refreshrate = 50; //[ms]
@@ -87,14 +87,27 @@ pub fn main() !void {
     try std.posix.getrandom(std.mem.asBytes(&seed));
     prng = std.Random.DefaultPrng.init(seed);
     // initialise SDL
-    if (sdl.SDL_Init(sdl.SDL_INIT_TIMER) != 0) {
+    if (sdl.SDL_Init(sdl.SDL_INIT_TIMER | sdl.SDL_INIT_VIDEO) != 0) {
         std.debug.print("SDL initialisation error: {s}\n", .{sdl.SDL_GetError()});
         return error.sdl_initialisationerror;
     }
     defer sdl.SDL_Quit();
-    const window: *sdl.SDL_Window = sdl.SDL_CreateWindow("Game window", 0, 0, 1600, 900, sdl.SDL_WINDOW_FULLSCREEN_DESKTOP) orelse {
+    // Prepare full screen (stable alternative for linux)
+    var dm: sdl.SDL_DisplayMode = undefined;
+    if (sdl.SDL_GetDisplayMode(0, 0, &dm) != 0) {
+        std.debug.print("SDL GetDisplayMode error: {s}\n", .{sdl.SDL_GetError()});
+        return error.sdl_initialisationerror;
+    }
+    const window: *sdl.SDL_Window = sdl.SDL_CreateWindow(
+        "Game window",
+        0,
+        0,
+        dm.w,
+        dm.h,
+        sdl.SDL_WINDOW_BORDERLESS | sdl.SDL_WINDOW_MAXIMIZED,
+    ) orelse {
         std.debug.print("SDL window creation failed: {s}\n", .{sdl.SDL_GetError()});
-        return error.sdl_windowcreationfailed;
+        return error.sdl_initialisationerror;
     };
     defer sdl.SDL_DestroyWindow(window);
     const canvas: *sdl.SDL_Surface = sdl.SDL_GetWindowSurface(window) orelse {
@@ -121,6 +134,12 @@ pub fn main() !void {
     canvaspixels = @as([*]u8, @ptrCast(@alignCast(canvas.pixels)));
     const VecWidth: u32 = width / VecSize;
     const xIncr: f32 = xratio * @as(f32, @floatFromInt(VecSize));
+
+    // Tweak background openGL to avoid screen flickering
+    if (sdl.SDL_GL_GetCurrentContext() != null) {
+        _ = sdl.SDL_GL_SetSwapInterval(1);
+        std.debug.print("Adapted current openGL context for vSync\n", .{});
+    }
 
     // Hide mouse
     _ = sdl.SDL_ShowCursor(sdl.SDL_DISABLE);
